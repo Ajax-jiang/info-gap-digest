@@ -19,11 +19,44 @@ DS_API_KEY = os.environ.get("DS_API_KEY", "")    # DeepSeek key
 SC_SENDKEY = os.environ.get("SC_SENDKEY", "")    # Server酱 SendKey
 UP_MID = os.environ.get("UP_MID", "3537104715909319")
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120"
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-def http_json(url, cookie, referer="https://www.bilibili.com/"):
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Cookie": cookie, "Referer": referer})
-    return json.loads(urllib.request.urlopen(req, timeout=20).read())
+def get_full_headers(cookie, referer):
+    """更真实的浏览器请求头,降低被B站风控概率"""
+    return {
+        "User-Agent": UA,
+        "Cookie": cookie,
+        "Referer": referer,
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Origin": "https://www.bilibili.com",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-site",
+        "Sec-Ch-Ua": '"Chromium";v="120", "Google Chrome";v="120", "Not-A-Brand";v="99"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Connection": "keep-alive",
+    }
+
+def http_json(url, cookie, referer="https://www.bilibili.com/", retries=3):
+    """带重试的请求,应对B站412/403风控"""
+    last_err = None
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, headers=get_full_headers(cookie, referer))
+            resp = urllib.request.urlopen(req, timeout=25)
+            return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            last_err = f"HTTP {e.code}"
+            if e.code in (412, 403):
+                time.sleep(3 * (attempt + 1))  # 风控则多等
+                continue
+            raise
+        except Exception as e:
+            last_err = str(e)
+            time.sleep(2)
+    raise Exception(f"请求失败({last_err}): {url[:60]}")
 
 def get_latest_video(cookie):
     """WBI签名拉UP主最新视频"""
@@ -42,6 +75,7 @@ def get_latest_video(cookie):
     resp = http_json(url, cookie, f"https://space.bilibili.com/{UP_MID}")
     if resp.get("code") != 0:
         raise Exception(f"B站接口错误: {resp.get('code')} {resp.get('message')}")
+    time.sleep(1.5)  # 模拟真人节奏
     vlist = resp["data"]["list"]["vlist"]
     if not vlist:
         raise Exception("没有视频")
@@ -52,6 +86,7 @@ def get_subtitle(bvid, cookie):
     """直取AI中文字幕"""
     info = http_json(f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}", cookie)
     cid = info["data"]["cid"]
+    time.sleep(1.5)
     player = http_json(f"https://api.bilibili.com/x/player/wbi/v2?bvid={bvid}&cid={cid}", cookie)
     subs = (player.get("data", {}).get("subtitle", {}) or {}).get("subtitles") or []
     if not subs:
@@ -60,6 +95,7 @@ def get_subtitle(bvid, cookie):
     sub_url = sub["subtitle_url"]
     if sub_url.startswith("//"):
         sub_url = "https:" + sub_url
+    time.sleep(1)
     sub_json = http_json(sub_url, cookie, f"https://www.bilibili.com/video/{bvid}")
     return " ".join(b.get("content", "") for b in sub_json.get("body", []))
 

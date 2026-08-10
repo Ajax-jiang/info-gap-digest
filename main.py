@@ -185,11 +185,11 @@ def get_subtitle(bvid, cookie):
     return " ".join(b.get("content", "") for b in sub_json.get("body", []))
 
 def ds_websearch(prompt):
-    """调用 DeepSeek v4-flash 联网搜索"""
+    """调用 DeepSeek v4-flash 联网搜索(超时180秒,处理深度分析+JSON输出)"""
     body = {"model": "deepseek-v4-flash", "input": prompt, "tools": [{"type": "web_search"}]}
     req = urllib.request.Request("https://api.deepseek.com/responses",
         data=json.dumps(body).encode(), headers={"Content-Type": "application/json", "Authorization": f"Bearer {DS_API_KEY}"})
-    resp = json.loads(urllib.request.urlopen(req, timeout=60).read())
+    resp = json.loads(urllib.request.urlopen(req, timeout=180).read())
     parts = []
     for o in resp.get("output", []):
         if o.get("type") == "message":

@@ -260,7 +260,7 @@ def render_html(data, video, dt):
   </div>
   <div class="card-snippet">{"🔑 ".join("") if not it.get("what") else _esc(it.get("what",""))[:40] + "…"}</div>
   <details>
-    <summary>深度解读（408版）</summary>
+    <summary>深度解读</summary>
     {keys}
     {body}
     {takeaway}

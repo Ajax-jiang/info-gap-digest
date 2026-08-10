@@ -247,9 +247,14 @@ def main():
 
     print("[3/4] DeepSeek 联网查证+总结...")
     items = split_items(transcript)
-    prompt = f"""你是信息差分析师。以下是B站UP主"信息Gap"{video['title']}的逐字稿内容。请做三件事:
+    prompt = f"""你是信息差分析师。以下是B站UP主"信息Gap"{video['title']}的逐字稿内容,请基于这份逐字稿分析:
 
-一、拆条:拆成独立条目,剔除广告。
+逐字稿正文:
+{transcript[:8000]}
+
+请做三件事:
+
+一、拆条:从上面的逐字稿中拆出独立条目,剔除广告。
 
 二、逐条联网核实真伪,标注状态:
 - 【已证实】有权威来源

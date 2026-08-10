@@ -1,0 +1,33 @@
+name: info-gap-daily-digest
+
+# 每天 UTC 00:00 跑 (北京时间早上8:00)
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 运行信息差抓取+查证+推送
+        env:
+          BILI_COOKIE: ${{ secrets.BILI_COOKIE }}
+          DS_API_KEY: ${{ secrets.DS_API_KEY }}
+          SC_SENDKEY: ${{ secrets.SC_SENDKEY }}
+          UP_MID: '3537104715909319'
+        run: python main.py
+
+      - name: 上传摘要
+        uses: actions/upload-artifact@v4
+        with:
+          name: info-gap-digest
+          path: out/

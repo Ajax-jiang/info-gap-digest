@@ -21,10 +21,15 @@ jobs:
       - name: 运行信息差抓取+查证+推送
         env:
           BILI_COOKIE: ${{ secrets.BILI_COOKIE }}
+          BILI_REFRESH_TOKEN: ${{ secrets.BILI_REFRESH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_REPO: 'Ajax-jiang/info-gap-digest'
           DS_API_KEY: ${{ secrets.DS_API_KEY }}
           SC_SENDKEY: ${{ secrets.SC_SENDKEY }}
           UP_MID: '3537104715909319'
-        run: python main.py
+        run: |
+          pip install pynacl -i https://pypi.tuna.tsinghua.edu.cn/simple -q
+          python main.py
 
       - name: 上传摘要
         uses: actions/upload-artifact@v4

@@ -216,6 +216,158 @@ def push_wechat(title, content):
     resp = json.loads(urllib.request.urlopen(req, timeout=20).read())
     return resp.get("code") == 0
 
+
+def _esc(s):
+    """HTML转义"""
+    if s is None: return ""
+    return html.escape(str(s)).replace('\n', '<br>')
+
+STATUS_LABEL = {"confirmed": "✅已证实", "doubtful": "⚠️存疑", "discrepancy": "⚠️有出入"}
+STATUS_COLOR = {"confirmed": "#0a7d3e", "doubtful": "#b26a00", "discrepancy": "#b3261e"}
+
+def render_html(data, video, dt):
+    """把JSON数据渲染成精品HTML页面(30秒版+可展开408深度)"""
+    items = data.get("items", [])
+    info_items = [it for it in items if it.get("category") == "info"]
+    brief_items = [it for it in items if it.get("category") == "brief"]
+    news_items = [it for it in items if it.get("category") == "news"]
+
+    def status_badge(it):
+        st = it.get("status", "confirmed")
+        label = STATUS_LABEL.get(st, st)
+        color = STATUS_COLOR.get(st, "#666")
+        note = _esc(it.get("status_note", ""))
+        return f'<span class="badge" style="background:{color}">{label}</span>' + (f'<span class="note">{note}</span>' if note else '')
+
+    def info_card(it):
+        fields = []
+        if it.get("what"): fields.append(("这是什么", it["what"]))
+        if it.get("background"): fields.append(("来龙去脉", it["background"]))
+        if it.get("mechanism"): fields.append(("底层机制", it["mechanism"]))
+        if it.get("impact"): fields.append(("影响", it["impact"]))
+        if it.get("pitfall"): fields.append(("坑与误区", it["pitfall"]))
+        if it.get("analogy"): fields.append(("类比", it["analogy"]))
+        keys = "".join(f'<div class="keynum">🔑 {_esc(k)}</div>' for k in it.get("key_numbers", []))
+        takeaway = f'<div class="takeaway">💡 {_esc(it.get("takeaway",""))}</div>' if it.get("takeaway") else ""
+        body = "".join(
+            f'<div class="dfield"><span class="dlabel">{lab}</span><div class="dtext">{_esc(val)}</div></div>'
+            for lab, val in fields
+        )
+        return f'''<div class="card info">
+  <div class="card-head">
+    <span class="card-title">{_esc(it.get("title",""))}</span>
+    {status_badge(it)}
+  </div>
+  <div class="card-snippet">{"🔑 ".join("") if not it.get("what") else _esc(it.get("what",""))[:40] + "…"}</div>
+  <details>
+    <summary>深度解读（408版）</summary>
+    {keys}
+    {body}
+    {takeaway}
+  </details>
+</div>'''
+
+    def simple_card(it):
+        return f'''<div class="card brief">
+  <div class="card-head"><span class="card-title">{_esc(it.get("title",""))}</span>{status_badge(it)}</div>
+  <div class="card-body">{_esc(it.get("what",""))}{_esc(it.get("impact",""))}</div>
+</div>'''
+
+    def news_card(it):
+        return f'''<div class="card news"><div class="card-head"><span class="card-title">{_esc(it.get("title",""))}</span>{status_badge(it)}</div></div>'''
+
+    info_html = "".join(info_card(it) for it in info_items) or "<p style='color:#888'>今日无深度信息差</p>"
+    brief_html = "".join(simple_card(it) for it in brief_items)
+    news_html = "".join(news_card(it) for it in news_items)
+
+    html_doc = f'''<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{_esc(dt)} 信息差速览</title>
+<style>
+:root {{ color-scheme: light; }}
+* {{ box-sizing: border-box; margin: 0; padding: 0; }}
+body {{ font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #222; padding-bottom: 40px; }}
+.header {{ background: linear-gradient(135deg, #1a1a2e, #16213e); color: #fff; padding: 28px 20px 24px; }}
+.header h1 {{ font-size: 20px; font-weight: 700; margin-bottom: 6px; }}
+.header .date {{ font-size: 13px; opacity: .8; }}
+.header .summary {{ margin-top: 12px; font-size: 14px; background: rgba(255,255,255,.12); padding: 10px 14px; border-radius: 10px; line-height: 1.5; }}
+.container {{ max-width: 640px; margin: 0 auto; padding: 16px 14px; }}
+.section-title {{ font-size: 16px; font-weight: 700; margin: 18px 0 10px; display: flex; align-items: center; gap: 6px; }}
+.card {{ background: #fff; border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.06); }}
+.card-head {{ display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }}
+.card-title {{ font-size: 15px; font-weight: 600; flex: 1; line-height: 1.4; }}
+.badge {{ font-size: 11px; color: #fff; padding: 2px 8px; border-radius: 20px; white-space: nowrap; margin-top: 2px; }}
+.note {{ font-size: 11px; color: #999; display: block; margin-top: 4px; }}
+.card-snippet {{ font-size: 13px; color: #666; line-height: 1.5; }}
+.card-body {{ font-size: 13px; color: #555; line-height: 1.5; }}
+details {{ margin-top: 8px; }}
+summary {{ cursor: pointer; font-size: 13px; color: #0a5ad1; font-weight: 600; padding: 6px 0; }}
+.dfield {{ margin-bottom: 8px; }}
+.dlabel {{ font-size: 12px; font-weight: 700; color: #0a5ad1; display: block; margin-bottom: 2px; }}
+.dtext {{ font-size: 13px; color: #333; line-height: 1.6; }}
+.keynum {{ font-size: 14px; font-weight: 700; color: #b26a00; background: #fff8e1; padding: 6px 10px; border-radius: 8px; margin-bottom: 8px; }}
+.takeaway {{ font-size: 13px; font-weight: 600; color: #0a7d3e; background: #e8f5e9; padding: 8px 10px; border-radius: 8px; margin-top: 6px; }}
+.card.news {{ background: #f9f9fa; }}
+.card.news .card-title {{ color: #888; font-weight: 500; }}
+.verify {{ background: #eef3ff; border-radius: 14px; padding: 14px 16px; font-size: 13px; color: #345; line-height: 1.6; margin-top: 8px; }}
+.footer {{ text-align: center; font-size: 11px; color: #aaa; margin-top: 24px; }}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="date">信息Gap · {_esc(dt)}</div>
+  <h1>📌 信息差速览</h1>
+  <div class="summary">👀 {_esc(data.get("summary_line",""))}</div>
+</div>
+<div class="container">
+  <div class="section-title">🔥 必看（深度解读）</div>
+  {info_html}
+  <div class="section-title">📋 其他信息差</div>
+  {brief_html or "<p style='color:#999;font-size:13px'>今日无</p>"}
+  <div class="section-title">📰 顺带新闻</div>
+  {news_html or "<p style='color:#999;font-size:13px'>今日无</p>"}
+  <div class="verify">✅ {_esc(data.get("verify_summary",""))}</div>
+  <div class="footer">信息Gap · 信息差速览 · 每日自动生成</div>
+</div>
+</body>
+</html>'''
+    return html_doc
+
+
+def upload_to_pages(html_content, dt):
+    """上传index.html到GitHub仓库(触发Pages更新),返回页面URL"""
+    if not GH_TOKEN:
+        return ""
+    repo = os.environ.get("GH_REPO", "Ajax-jiang/info-gap-digest")
+    # 获取当前index.html的sha
+    try:
+        req = urllib.request.Request(f"https://api.github.com/repos/{repo}/contents/index.html",
+            headers={"Authorization": f"token {GH_TOKEN}", "Accept": "application/vnd.github+json"})
+        resp = urllib.request.urlopen(req, timeout=15).read()
+        sha = json.loads(resp).get("sha", "")
+    except Exception:
+        sha = ""
+    body = {
+        "message": f"每日更新: {dt}",
+        "content": base64.b64encode(html_content.encode()).decode(),
+    }
+    if sha:
+        body["sha"] = sha
+    req = urllib.request.Request(f"https://api.github.com/repos/{repo}/contents/index.html",
+        data=json.dumps(body).encode(), method="PUT",
+        headers={"Authorization": f"token {GH_TOKEN}", "Content-Type": "application/json",
+                 "Accept": "application/vnd.github+json"})
+    try:
+        resp = urllib.request.urlopen(req, timeout=20).read()
+        json.loads(resp)
+        return f"https://ajax-jiang.github.io/{repo.split('/')[1]}/"
+    except Exception as e:
+        print(f"  上传Pages失败: {e}")
+        return ""
+
 def main():
     if not all([BILI_COOKIE, DS_API_KEY, SC_SENDKEY]):
         print("缺少必要环境变量"); sys.exit(1)
@@ -245,7 +397,7 @@ def main():
     transcript = get_subtitle(video["bvid"], cookie)
     print(f"       逐字稿 {len(transcript)} 字")
 
-    print("[3/4] DeepSeek 联网查证+总结...")
+    print("[3/4] DeepSeek 联网查证+深度分析...")
     items = split_items(transcript)
     prompt = f"""你是顶级的信息差分析师兼讲解老师。以下是B站UP主"信息Gap"{video['title']}的逐字稿内容,请基于这份逐字稿分析:
 
@@ -255,88 +407,105 @@ def main():
 ━━━━━━━━━━━━━━━━━━
 # 你的任务
 
-请对逐字稿中的每条信息差,做**像"考研408讲解"一样的深度剖析**。408的讲解标准是:不讲套话,把一个知识点的"来龙去脉、底层机制、实际影响、易错坑"全讲透,让零基础的人听完就懂、能举一反三。
+对逐字稿中的每条信息差,做**像"考研408讲解"一样的深度剖析**,然后**输出严格的JSON**供程序渲染。
 
 ## 第一步:拆条+核实
 1. 拆出独立条目,剔除广告。
-2. 逐条联网核实真伪,标注【已证实】/【存疑】/【有出入】,有出入要指出"UP主说的是X,实际是Y"。
+2. 逐条联网核实真伪,status用: "confirmed"(已证实) / "doubtful"(存疑) / "discrepancy"(有出入)。
 
-## 第二步:区分信息差 vs 新闻
-- 🎯【信息差】= 大多数人不知道、但对决策有用的:政策红利、套利机会、规则漏洞、行业暗线、小众认知、即将发生的变化
-- 📰【新闻】= 已被广泛报道、人人都知道的事
-- 属于【新闻】的,一笔带过;属于【信息差】的,按第三步深度展开。
+## 第二步:分类
+- category = "info" (信息差:政策红利/套利机会/规则漏洞/行业暗线/小众认知)
+- category = "news" (普通新闻:已广泛报道)
+- category = "brief" (次要信息差:值得提但不用深度展开)
 
-## 第三步:深度剖析每条信息差(408标准,最重要)
+## 第三步:深度剖析(仅对category="info"的条目,408标准)
+每条info条目,必须包含这5层:
+1. what: 这是什么(一句话定义,外行秒懂)
+2. background: 来龙去脉(2-3句:为什么会有?谁推动?什么时候?)
+3. mechanism: 底层机制(2-3句:怎么运作?关键环节/数字)
+4. impact: 影响(对谁怎样,正面+反面)
+5. pitfall: 坑与误区(大多数人误解什么?有什么风险?)
+6. analogy: 类比(一句生活化类比)
+7. key_numbers: 关键数字(数组,每个是一句含数字的话)
+8. takeaway: 一句话"可做什么/该注意什么"
 
-每条信息差,必须讲清楚这5层,缺一不可:
-
-1. **这是什么**(一句话定义,让外行秒懂)
-2. **来龙去脉**(背景:为什么会有这事?谁推动的?什么时候开始的?)
-3. **底层机制**(它到底怎么运作的?关键环节/关键人物/关键数字是怎么起作用的)
-4. **影响面**(对谁有影响?普通人/从业者/行业/国家分别意味着什么?正面+反面)
-5. **坑与误区**(大多数人会误解什么?有什么陷阱/风险/执行难点?)
-
-外加一条:**类比**——用生活中的例子打比方,让抽象概念变具体(如"这就像XX一样")。
-
-## 排版要求(公众号风格,手机阅读友好)
-- 短段,一段最多2-3行,段间空行
-- 标题即结论,口语化
-- 关键数字单独突出🔑
-- 每条结构:标题 → 【这是什么】→【来龙去脉】→【底层机制】→【影响】→【坑】→ 类比
-
-## 输出格式
-
----
-📌 {video['title']} · 信息差深度解读
-
-🎯 真信息差 N 条 | 📰 普通新闻 M 条
-
-━━━━━━━━━━
-🔥 今日重点(深度解读)
-
-【1】【已证实】标题
-▸ 这是什么:一句话讲清
-▸ 来龙去脉:2-3句背景
-▸ 底层机制:2-3句,讲透怎么运作
-▸ 影响:对谁怎样(好/坏都讲)
-▸ 坑与误区:1-2句
-▸ 类比:一句话生活化类比
-
-【2】...(同上,每条之间空两行)
-
-━━━━━━━━━━
-📋 其他信息差(简版,每条3-4行)
-
-【N】【状态】标题
-▸ 是什么:一句话
-▸ 关键:一句
-▸ 影响:一句
-
-━━━━━━━━━━
-📰 顺带新闻(一句话带过)
-
-· 标题:一句话
-
-━━━━━━━━━━
-✅ 核验汇总
-
-· 共N条,已证实X条,存疑Y条,有出入Z条
-· 需注意:【列出有出入/存疑的条目及原因】
-
-(整体800字以内,信息差条目求深不求多)
+## 输出要求
+只输出一个JSON对象,不要任何其他文字、不要markdown代码块围栏。格式:
+{{
+  "date": "{video['title']}",
+  "summary_line": "一句话总览(15字内)",
+  "items": [
+    {{
+      "title": "标题(直接说结论,口语化)",
+      "category": "info|brief|news",
+      "status": "confirmed|doubtful|discrepancy",
+      "status_note": "核实依据,一句话;discrepancy时说明UP主错在哪",
+      "what": "...",
+      "background": "...",
+      "mechanism": "...",
+      "impact": "...",
+      "pitfall": "...",
+      "analogy": "...",
+      "key_numbers": ["..."],
+      "takeaway": "..."
+    }}
+  ],
+  "verify_summary": "核验汇总,一句话(共N条,已证实X,存疑Y,有出入Z)"
+}}
+注意:
+- category="info"的条目填全所有字段;category="brief"只填title/category/status/what/impact;category="news"只填title/category/status。
+- JSON必须合法,能被json.loads解析,不要有注释、不要有尾逗号。
 """
-    summary = ds_websearch(prompt)
-    print(f"       总结完成 {len(summary)} 字")
+    raw_output = ds_websearch(prompt)
+    print(f"       分析完成,尝试解析JSON...")
+    # 提取JSON(去掉可能的围栏或前后杂讯)
+    import json as _json
+    data = None
+    try:
+        start = raw_output.find('{')
+        end = raw_output.rfind('}')
+        if start >= 0 and end > start:
+            json_str = raw_output[start:end+1]
+            data = _json.loads(json_str)
+            print(f"       JSON解析成功,{len(data.get('items',[]))} 条")
+    except Exception as e:
+        print(f"       JSON解析失败({e}),回退为纯文本")
+
+    # 保存原始分析
+    os.makedirs("out", exist_ok=True)
+    path = f"out/{dt}_信息差分析.json"
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(raw_output if data is None else _json.dumps(data, ensure_ascii=False, indent=2))
+    print(f"       已保存分析 {path}")
+
+    # 渲染精品HTML(如果JSON解析成功)
+    html_url = ""
+    if data:
+        try:
+            html_content = render_html(data, video, dt)
+            html_path = f"out/index.html"
+            with open(html_path, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            print(f"       HTML已生成 {len(html_content)} 字符")
+            # 上传到GitHub Pages
+            html_url = upload_to_pages(html_content, dt)
+            print(f"       页面地址: {html_url}")
+        except Exception as e:
+            print(f"       HTML渲染/上传失败: {e}")
 
     print("[4/4] 推送微信...")
-    ok = push_wechat(f"📌 信息差摘要 {dt}", summary)
-    print(f"       微信推送{'成功' if ok else '失败'}")
-
-    # 保存摘要
-    os.makedirs("out", exist_ok=True)
-    path = f"out/{dt}_信息差摘要.md"
-    open(path, "w", encoding="utf-8").write(summary)
-    print(f"       已保存 {path}")
+    if data and html_url:
+        # 精品版:微信只推标题+链接
+        ok = push_wechat(
+            f"📌 {dt} 信息差速览",
+            f"今天 {len(data.get('items',[]))} 条信息,已核实。\n\n点开看精品解读(30秒版+深度展开):\n{html_url}\n\n一句话:{data.get('summary_line','')}"
+        )
+        print(f"       微信推送链接{'成功' if ok else '失败'}")
+    else:
+        # 回退:推纯文本摘要
+        text = raw_output if data is None else _json.dumps(data, ensure_ascii=False, indent=2)
+        ok = push_wechat(f"📌 信息差摘要 {dt}", text[:2000])
+        print(f"       微信推送纯文本{'成功' if ok else '失败'}")
 
 if __name__ == "__main__":
     main()

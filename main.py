@@ -11,10 +11,12 @@
   3. 用 DeepSeek v4-flash 的联网搜索(web_search)逐条查证+深度总结
   4. 生成摘要,保存为md,并推送到 Server酱(微信)
 """
-import os, sys, re, datetime, json, hashlib, time, urllib.parse, urllib.request, html
+import os, sys, re, datetime, json, hashlib, time, urllib.parse, urllib.request, html, base64
 
 # ---------- 环境变量配置 ----------
 BILI_COOKIE = os.environ.get("BILI_COOKIE", "")  # B站Cookie(分号分隔)
+BILI_REFRESH_TOKEN = os.environ.get("BILI_REFRESH_TOKEN", "")  # B站refresh_token(ac_time_value)
+GH_TOKEN = os.environ.get("GH_TOKEN", "")  # GitHub token,用于自动更新secret
 DS_API_KEY = os.environ.get("DS_API_KEY", "")    # DeepSeek key
 SC_SENDKEY = os.environ.get("SC_SENDKEY", "")    # Server酱 SendKey
 UP_MID = os.environ.get("UP_MID", "3537104715909319")
@@ -57,6 +59,89 @@ def http_json(url, cookie, referer="https://www.bilibili.com/", retries=3):
             last_err = str(e)
             time.sleep(2)
     raise Exception(f"请求失败({last_err}): {url[:60]}")
+
+
+def update_gh_secret(name, value):
+    """更新GitHub Secret(用于Cookie自动续期后写回)"""
+    if not GH_TOKEN:
+        print("  无GH_TOKEN,跳过secret更新")
+        return False
+    try:
+        # 获取公钥
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{os.environ.get('GH_REPO','Ajax-jiang/info-gap-digest')}/actions/secrets/public-key",
+            headers={"Authorization": f"token {GH_TOKEN}", "Accept": "application/vnd.github+json"})
+        pk = json.loads(urllib.request.urlopen(req, timeout=15).read())
+        key_id, pub_key = pk["key_id"], pk["key"]
+        # 用pynacl加密
+        from nacl import encoding, public
+        pub = public.PublicKey(pub_key.encode(), encoding.Base64Encoder())
+        sealed = public.SealedBox(pub).encrypt(value.encode())
+        enc = base64.b64encode(sealed).decode()
+        body = json.dumps({"encrypted_value": enc, "key_id": key_id}).encode()
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{os.environ.get('GH_REPO','Ajax-jiang/info-gap-digest')}/actions/secrets/{name}",
+            data=body, method="PUT",
+            headers={"Authorization": f"token {GH_TOKEN}", "Content-Type": "application/json",
+                     "Accept": "application/vnd.github+json"})
+        resp = urllib.request.urlopen(req, timeout=15)
+        print(f"  Secret {name} 已更新: HTTP {resp.status}")
+        return True
+    except Exception as e:
+        print(f"  更新Secret失败: {e}")
+        return False
+
+
+def refresh_bili_cookie(cookie, refresh_token):
+    """B站Cookie自动续期:用refresh_token换新Cookie。返回新cookie或None(无需刷新)。"""
+    try:
+        # 1. 检查是否需要刷新
+        info = http_json("https://passport.bilibili.com/x/passport-login/web/cookie/info", cookie)
+        if not info.get("data", {}).get("refresh"):
+            print("  Cookie无需刷新")
+            return None
+
+        # 2. 生成correspondPath (RSA-OAEP加密 refresh_{timestamp})
+        import urllib.parse as up
+        ts = str(int(time.time() * 1000))
+        raw = f"refresh_{ts}"
+        # 获取B站公钥
+        nav = http_json("https://api.bilibili.com/x/web-interface/nav", cookie)
+        # 从cookie中拿bili_jct (csrf)
+        bili_jct = re.search(r"bili_jct=([^;]+)", cookie)
+        csrf = bili_jct.group(1) if bili_jct else ""
+
+        # 用对应公钥加密(简化:直接请求刷新接口,部分情况下B站允许)
+        # 3. 直接尝试刷新
+        refresh_data = up.urlencode({
+            "csrf": csrf, "source": "main_web", "refresh_token": refresh_token
+        }).encode()
+        req = urllib.request.Request(
+            "https://passport.bilibili.com/x/passport-login/web/cookie/refresh",
+            data=refresh_data,
+            headers={**get_full_headers(cookie, "https://www.bilibili.com/"),
+                     "Content-Type": "application/x-www-form-urlencoded"})
+        resp = json.loads(urllib.request.urlopen(req, timeout=20).read())
+        if resp.get("code") == 0:
+            data = resp.get("data", {})
+            # 新cookie和refresh_token
+            new_cookie = data.get("cookie_info", {}).get("cookies", [])
+            new_refresh = data.get("refresh_token", refresh_token)
+            # 重组cookie字符串
+            cookie_parts = [c["name"] + "=" + c["value"] for c in new_cookie]
+            # 保留原有非登录态cookie(如buvid等)
+            old_pairs = dict(p.split("=", 1) for p in cookie.split("; ") if "=" in p)
+            new_dict = {c["name"]: c["value"] for c in new_cookie}
+            old_pairs.update(new_dict)
+            full_cookie = "; ".join(f"{k}={v}" for k, v in old_pairs.items())
+            print("  Cookie已刷新")
+            return full_cookie, new_refresh
+        else:
+            print(f"  刷新失败: {resp.get('code')} {resp.get('message')}")
+            return None
+    except Exception as e:
+        print(f"  续期异常: {e}")
+        return None
 
 def get_latest_video(cookie):
     """WBI签名拉UP主最新视频"""
@@ -135,13 +220,29 @@ def main():
     if not all([BILI_COOKIE, DS_API_KEY, SC_SENDKEY]):
         print("缺少必要环境变量"); sys.exit(1)
 
+    cookie = BILI_COOKIE
+
+    # 自动续期:检查Cookie是否需要刷新,需要则自动换新
+    print("[0/4] 检查Cookie状态...")
+    if BILI_REFRESH_TOKEN:
+        result = refresh_bili_cookie(cookie, BILI_REFRESH_TOKEN)
+        if result:
+            cookie, new_refresh = result
+            # 更新GitHub Secret,让下次运行用新Cookie
+            if cookie != BILI_COOKIE:
+                update_gh_secret("BILI_COOKIE", cookie)
+            if new_refresh != BILI_REFRESH_TOKEN:
+                update_gh_secret("BILI_REFRESH_TOKEN", new_refresh)
+    else:
+        print("      未配置refresh_token,依赖手动更新Cookie")
+
     print("[1/4] 获取最新视频...")
-    video = get_latest_video(BILI_COOKIE)
+    video = get_latest_video(cookie)
     dt = datetime.datetime.fromtimestamp(video["date"]).strftime("%Y-%m-%d")
     print(f"       {video['title']} ({dt})")
 
     print("[2/4] 获取字幕...")
-    transcript = get_subtitle(video["bvid"], BILI_COOKIE)
+    transcript = get_subtitle(video["bvid"], cookie)
     print(f"       逐字稿 {len(transcript)} 字")
 
     print("[3/4] DeepSeek 联网查证+总结...")

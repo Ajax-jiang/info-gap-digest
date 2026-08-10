@@ -397,65 +397,44 @@ def main():
     transcript = get_subtitle(video["bvid"], cookie)
     print(f"       逐字稿 {len(transcript)} 字")
 
-    print("[3/4] DeepSeek 联网查证+深度分析...")
+    print("[3/4] DeepSeek 结构化分析...")
     items = split_items(transcript)
-    prompt = f"""你是顶级的信息差分析师兼讲解老师。以下是B站UP主"信息Gap"{video['title']}的逐字稿内容,请基于这份逐字稿分析:
+    prompt = f"""你是资深的信息差分析师。以下是B站UP主"信息Gap"{video['title']}的逐字稿,请把它拆成条目并输出**严格的JSON**(不要任何其他文字,不要markdown围栏)。
 
-逐字稿正文:
+逐字稿:
 {transcript[:8000]}
 
-━━━━━━━━━━━━━━━━━━
-# 你的任务
+规则:
+1. 拆出独立条目,剔除广告(如家居服等)。
+2. 对每条信息,用你的知识判断真伪,status填:
+   - "confirmed"(可信/有依据) / "doubtful"(存疑) / "discrepancy"(你确定UP主说错了,注明status_note纠正)
+3. category分类:
+   - "info"= 真信息差(政策红利/套利机会/规则漏洞/行业暗线/小众认知/即将发生的变化)
+   - "brief"= 次要信息差(值得提,不用深度)
+   - "news"= 普通新闻(人人皆知)
+4. 对 category="info" 的条目,按408讲解深度填这些字段(用你的知识,讲透):
+   - what: 这是什么(一句,外行秒懂)
+   - background: 来龙去脉(2句)
+   - mechanism: 底层机制(2句)
+   - impact: 影响(正面+反面,2句)
+   - pitfall: 坑与误区(1-2句)
+   - analogy: 生活化类比(1句)
+   - key_numbers: 关键数字数组(每条一句含数字)
+   - takeaway: 一句话"该注意什么/可做什么"
+   这些字段用你的知识写,注意准确,不确定的不要编。
+5. category="brief" 只填:title/category/status/what(一句)/impact(一句)。
+6. category="news" 只填:title/category/status。
 
-对逐字稿中的每条信息差,做**像"考研408讲解"一样的深度剖析**,然后**输出严格的JSON**供程序渲染。
-
-## 第一步:拆条+核实
-1. 拆出独立条目,剔除广告。
-2. 逐条联网核实真伪,status用: "confirmed"(已证实) / "doubtful"(存疑) / "discrepancy"(有出入)。
-
-## 第二步:分类
-- category = "info" (信息差:政策红利/套利机会/规则漏洞/行业暗线/小众认知)
-- category = "news" (普通新闻:已广泛报道)
-- category = "brief" (次要信息差:值得提但不用深度展开)
-
-## 第三步:深度剖析(仅对category="info"的条目,408标准)
-每条info条目,必须包含这5层:
-1. what: 这是什么(一句话定义,外行秒懂)
-2. background: 来龙去脉(2-3句:为什么会有?谁推动?什么时候?)
-3. mechanism: 底层机制(2-3句:怎么运作?关键环节/数字)
-4. impact: 影响(对谁怎样,正面+反面)
-5. pitfall: 坑与误区(大多数人误解什么?有什么风险?)
-6. analogy: 类比(一句生活化类比)
-7. key_numbers: 关键数字(数组,每个是一句含数字的话)
-8. takeaway: 一句话"可做什么/该注意什么"
-
-## 输出要求
-只输出一个JSON对象,不要任何其他文字、不要markdown代码块围栏。格式:
+输出JSON结构:
 {{
   "date": "{video['title']}",
   "summary_line": "一句话总览(15字内)",
   "items": [
-    {{
-      "title": "标题(直接说结论,口语化)",
-      "category": "info|brief|news",
-      "status": "confirmed|doubtful|discrepancy",
-      "status_note": "核实依据,一句话;discrepancy时说明UP主错在哪",
-      "what": "...",
-      "background": "...",
-      "mechanism": "...",
-      "impact": "...",
-      "pitfall": "...",
-      "analogy": "...",
-      "key_numbers": ["..."],
-      "takeaway": "..."
-    }}
+    {{"title":"...", "category":"info", "status":"confirmed", "status_note":"...", "what":"...", "background":"...", "mechanism":"...", "impact":"...", "pitfall":"...", "analogy":"...", "key_numbers":["..."], "takeaway":"..."}}
   ],
-  "verify_summary": "核验汇总,一句话(共N条,已证实X,存疑Y,有出入Z)"
+  "verify_summary": "核验汇总(共N条,已证实X,存疑Y,有出入Z)"
 }}
-注意:
-- category="info"的条目填全所有字段;category="brief"只填title/category/status/what/impact;category="news"只填title/category/status。
-- JSON必须合法,能被json.loads解析,不要有注释、不要有尾逗号。
-"""
+JSON必须合法,能被json.loads解析。"""
     raw_output = ds_websearch(prompt)
     print(f"       分析完成,尝试解析JSON...")
     # 提取JSON(去掉可能的围栏或前后杂讯)

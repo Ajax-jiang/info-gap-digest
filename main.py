@@ -369,36 +369,57 @@ summary {{ cursor: pointer; font-size: 13px; color: #0a5ad1; font-weight: 600; p
     return html_doc
 
 
-def upload_to_pages(html_content, dt):
-    """上传index.html到GitHub仓库(触发Pages更新),返回页面URL"""
-    if not GH_TOKEN:
-        return ""
+def gh_put_file(path, content_bytes, message):
+    """通用:上传/更新仓库文件"""
     repo = os.environ.get("GH_REPO", "Ajax-jiang/info-gap-digest")
-    # 获取当前index.html的sha
+    sha = ""
     try:
-        req = urllib.request.Request(f"https://api.github.com/repos/{repo}/contents/index.html",
+        req = urllib.request.Request(f"https://api.github.com/repos/{repo}/contents/{path}",
             headers={"Authorization": f"token {GH_TOKEN}", "Accept": "application/vnd.github+json"})
         resp = urllib.request.urlopen(req, timeout=15).read()
         sha = json.loads(resp).get("sha", "")
     except Exception:
-        sha = ""
-    body = {
-        "message": f"每日更新: {dt}",
-        "content": base64.b64encode(html_content.encode()).decode(),
-    }
+        pass
+    body = {"message": message, "content": base64.b64encode(content_bytes).decode()}
     if sha:
         body["sha"] = sha
-    req = urllib.request.Request(f"https://api.github.com/repos/{repo}/contents/index.html",
+    req = urllib.request.Request(f"https://api.github.com/repos/{repo}/contents/{path}",
         data=json.dumps(body).encode(), method="PUT",
         headers={"Authorization": f"token {GH_TOKEN}", "Content-Type": "application/json",
                  "Accept": "application/vnd.github+json"})
     try:
-        resp = urllib.request.urlopen(req, timeout=20).read()
-        json.loads(resp)
-        return f"https://ajax-jiang.github.io/{repo.split('/')[1]}/"
+        urllib.request.urlopen(req, timeout=20)
+        return True
     except Exception as e:
-        print(f"  上传Pages失败: {e}")
+        print(f"  上传 {path} 失败: {e}")
+        return False
+
+
+def upload_to_pages(html_content, dt):
+    """上传daily-{date}.html + 更新index.html(自动跳转到最新),返回页面URL"""
+    if not GH_TOKEN:
         return ""
+    repo = os.environ.get("GH_REPO", "Ajax-jiang/info-gap-digest")
+    # 1. 上传带日期的内容页 daily-2026-08-11.html
+    daily_path = f"daily-{dt}.html"
+    ok1 = gh_put_file(daily_path, html_content.encode(), f"每日更新: {dt}")
+    # 2. 生成自动跳转的index.html(指向最新daily)
+    redirect = f'''<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="refresh" content="0; url={daily_path}">
+<link rel="apple-touch-icon" href="icon.png">
+<title>信息差速览</title>
+</head>
+<body>
+<p>正在加载最新信息差… <a href="{daily_path}">点击进入</a></p>
+</body>
+</html>'''
+    ok2 = gh_put_file("index.html", redirect.encode(), f"更新入口 → {daily_path}")
+    if ok1 and ok2:
+        return f"https://ajax-jiang.github.io/{repo.split('/')[1]}/"
+    return ""
 
 
 def upload_icon():

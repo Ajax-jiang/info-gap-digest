@@ -286,6 +286,11 @@ def render_html(data, video, dt):
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{_esc(dt)} 信息差速览</title>
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" href="icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="信息差">
 <style>
 :root {{ color-scheme: light; }}
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -367,6 +372,33 @@ def upload_to_pages(html_content, dt):
     except Exception as e:
         print(f"  上传Pages失败: {e}")
         return ""
+
+
+def upload_icon():
+    """上传icon.png到GitHub仓库(供apple-touch-icon使用)"""
+    if not GH_TOKEN:
+        return
+    repo = os.environ.get("GH_REPO", "Ajax-jiang/info-gap-digest")
+    try:
+        req = urllib.request.Request(f"https://api.github.com/repos/{repo}/contents/icon.png",
+            headers={"Authorization": f"token {GH_TOKEN}", "Accept": "application/vnd.github+json"})
+        try:
+            resp = urllib.request.urlopen(req, timeout=15).read()
+            sha = json.loads(resp).get("sha", "")
+        except Exception:
+            sha = ""
+        icon_data = open("out/icon.png", "rb").read()
+        body = {"message": "更新图标", "content": base64.b64encode(icon_data).decode()}
+        if sha:
+            body["sha"] = sha
+        req = urllib.request.Request(f"https://api.github.com/repos/{repo}/contents/icon.png",
+            data=json.dumps(body).encode(), method="PUT",
+            headers={"Authorization": f"token {GH_TOKEN}", "Content-Type": "application/json",
+                     "Accept": "application/vnd.github+json"})
+        urllib.request.urlopen(req, timeout=20)
+        print("       icon.png 已上传")
+    except Exception as e:
+        print(f"  图标上传失败: {e}")
 
 def main():
     if not all([BILI_COOKIE, DS_API_KEY, SC_SENDKEY]):
@@ -472,19 +504,32 @@ JSON必须合法,能被json.loads解析。"""
         except Exception as e:
             print(f"       HTML渲染/上传失败: {e}")
 
-    print("[4/4] 推送微信...")
+    # 生成一个简单的图标(如需定制可替换)
+    try:
+        import struct, zlib
+        # 生成一个 180x180 的图标(深色底+📰)
+        # 简化:生成纯色圆角图标
+        try:
+            from PIL import Image, ImageDraw
+            img = Image.new('RGB', (180, 180), (26, 26, 46))
+            draw = ImageDraw.Draw(img)
+            # 画个圆角方块
+            draw.rounded_rectangle([4, 4, 176, 176], radius=40, fill=(22, 33, 62))
+            draw.text((90, 90), '📰', anchor='mm', font_size=60)
+            img.save('out/icon.png')
+            print("       图标已生成 out/icon.png")
+            # 上传icon.png
+            upload_icon()
+        except ImportError:
+            print("       无PIL,跳过图标生成")
+    except Exception as e:
+        print(f"       图标生成失败: {e}")
+
+    print("[4/4] 完成(不推送微信,用户直接访问页面)")
     if data and html_url:
-        # 精品版:微信只推标题+链接
-        ok = push_wechat(
-            f"📌 {dt} 信息差速览",
-            f"今天 {len(data.get('items',[]))} 条信息,已核实。\n\n点开看精品解读(30秒版+深度展开):\n{html_url}\n\n一句话:{data.get('summary_line','')}"
-        )
-        print(f"       微信推送链接{'成功' if ok else '失败'}")
-    else:
-        # 回退:推纯文本摘要
-        text = raw_output if data is None else _json.dumps(data, ensure_ascii=False, indent=2)
-        ok = push_wechat(f"📌 信息差摘要 {dt}", text[:2000])
-        print(f"       微信推送纯文本{'成功' if ok else '失败'}")
+        print(f"       今日页面已更新: {html_url}")
+    elif data:
+        print("       页面已生成(未上传,可能缺GH_TOKEN)")
 
 if __name__ == "__main__":
     main()

@@ -253,14 +253,33 @@ def render_html(data, video, dt):
             f'<div class="dfield"><span class="dlabel">{lab}</span><div class="dtext">{_esc(val)}</div></div>'
             for lab, val in fields
         )
+        # 见微知著:前瞻推演区
+        foresight_html = ""
+        if it.get("foresight") or it.get("evidence") or it.get("confidence") or it.get("counter") or it.get("action"):
+            foresight_html = f'''<div class="foresight">
+  <div class="fs-title">🔮 见微知著 · 前瞻推演</div>
+  {f'<div class="fs-trend">趋势: {_esc(it["foresight"])}</div>' if it.get("foresight") else ''}
+  <div class="fs-meta">
+    {f'<span class="fs-chip">🧭 证据强度:{_esc(it["evidence"])}</span>' if it.get("evidence") else ''}
+    {f'<span class="fs-chip">🎯 置信度:{_esc(it["confidence"])}</span>' if it.get("confidence") else ''}
+  </div>
+  {f'<div class="fs-counter">⚠️ 反证:{_esc(it["counter"])}</div>' if it.get("counter") else ''}
+  {f'<div class="fs-action">✅ 现在可做:{_esc(it["action"])}</div>' if it.get("action") else ''}
+</div>'''
+        snippet = ""
+        if it.get("foresight"):
+            snippet = f'<div class="fs-snippet">🔮 {_esc(it["foresight"])[:50]}…</div>'
+        elif it.get("what"):
+            snippet = f'<div class="card-snippet">{_esc(it["what"])[:40]}…</div>'
         return f'''<div class="card info">
   <div class="card-head">
     <span class="card-title">{_esc(it.get("title",""))}</span>
     {status_badge(it)}
   </div>
-  <div class="card-snippet">{"🔑 ".join("") if not it.get("what") else _esc(it.get("what",""))[:40] + "…"}</div>
+  {snippet}
   <details>
     <summary>深度解读</summary>
+    {foresight_html}
     {keys}
     {body}
     {takeaway}
@@ -315,6 +334,14 @@ summary {{ cursor: pointer; font-size: 13px; color: #0a5ad1; font-weight: 600; p
 .dtext {{ font-size: 13px; color: #333; line-height: 1.6; }}
 .keynum {{ font-size: 14px; font-weight: 700; color: #b26a00; background: #fff8e1; padding: 6px 10px; border-radius: 8px; margin-bottom: 8px; }}
 .takeaway {{ font-size: 13px; font-weight: 600; color: #0a7d3e; background: #e8f5e9; padding: 8px 10px; border-radius: 8px; margin-top: 6px; }}
+.fs-snippet {{ font-size: 13px; color: #0a5ad1; background: #eef3ff; padding: 8px 10px; border-radius: 8px; margin-top: 6px; line-height: 1.5; }}
+.foresight {{ background: linear-gradient(135deg, #f6f0ff, #eef3ff); border: 1px solid #d6c8f5; border-radius: 12px; padding: 12px; margin: 8px 0; }}
+.fs-title {{ font-size: 14px; font-weight: 700; color: #5b3fa8; margin-bottom: 8px; }}
+.fs-trend {{ font-size: 13px; color: #333; line-height: 1.6; margin-bottom: 6px; }}
+.fs-meta {{ display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }}
+.fs-chip {{ font-size: 12px; background: #fff; border: 1px solid #ddd; color: #555; padding: 3px 8px; border-radius: 20px; }}
+.fs-counter {{ font-size: 12px; color: #b3261e; line-height: 1.5; margin-top: 4px; }}
+.fs-action {{ font-size: 13px; font-weight: 600; color: #0a7d3e; background: #e8f5e9; padding: 6px 10px; border-radius: 8px; margin-top: 6px; line-height: 1.5; }}
 .card.news {{ background: #f9f9fa; }}
 .card.news .card-title {{ color: #888; font-weight: 500; }}
 .verify {{ background: #eef3ff; border-radius: 14px; padding: 14px 16px; font-size: 13px; color: #345; line-height: 1.6; margin-top: 8px; }}
@@ -444,7 +471,7 @@ def main():
    - "info"= 真信息差(政策红利/套利机会/规则漏洞/行业暗线/小众认知/即将发生的变化)
    - "brief"= 次要信息差(值得提,不用深度)
    - "news"= 普通新闻(人人皆知)
-4. 对 category="info" 的条目,按408讲解深度填这些字段(用你的知识,讲透):
+4. 对 category="info" 的条目,用"见微知著"框架填这些字段(这是最重要的部分,学扁鹊大哥:从早期信号推演趋势):
    - what: 这是什么(一句,外行秒懂)
    - background: 来龙去脉(2句)
    - mechanism: 底层机制(2句)
@@ -453,7 +480,12 @@ def main():
    - analogy: 生活化类比(1句)
    - key_numbers: 关键数字数组(每条一句含数字)
    - takeaway: 一句话"该注意什么/可做什么"
-   这些字段用你的知识写,注意准确,不确定的不要编。
+   - **foresight(前瞻推演,见微知著,新增,最重要)**: 这个信号背后暴露了什么趋势?如果持续,1-3年后会发生什么?要给出"时间窗+趋势判断"。格式:"🔮 趋势:【时间窗】+判断"
+   - **evidence(证据强度)**: 填 "强"/"中"/"弱" + 一句话说明证据(如"人口数据是硬趋势"或"目前只是个案")
+   - **confidence(置信度)**: 填 "高"/"中"/"低" + 一句话(方向是否确定?具体到哪家公司/机构是否确定?)
+   - **counter(反证/如果错了)**: 这个判断可能错在哪?什么情况下不成立?(1句)
+   - **action(现在可做什么)**: 针对不同角色(普通人/从业者/学生/投资者)的1-2条可执行建议
+   注意:这些字段用你的知识写,不准的不要编。预判只给"倾向和概率",绝不编造具体事件。
 5. category="brief" 只填:title/category/status/what(一句)/impact(一句)。
 6. category="news" 只填:title/category/status。
 
@@ -462,7 +494,7 @@ def main():
   "date": "{video['title']}",
   "summary_line": "一句话总览(15字内)",
   "items": [
-    {{"title":"...", "category":"info", "status":"confirmed", "status_note":"...", "what":"...", "background":"...", "mechanism":"...", "impact":"...", "pitfall":"...", "analogy":"...", "key_numbers":["..."], "takeaway":"..."}}
+    {{"title":"...", "category":"info", "status":"confirmed", "status_note":"...", "what":"...", "background":"...", "mechanism":"...", "impact":"...", "pitfall":"...", "analogy":"...", "key_numbers":["..."], "takeaway":"...", "foresight":"...", "evidence":"...", "confidence":"...", "counter":"...", "action":"..."}}
   ],
   "verify_summary": "核验汇总(共N条,已证实X,存疑Y,有出入Z)"
 }}
